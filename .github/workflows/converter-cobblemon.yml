@@ -48,20 +48,26 @@ jobs:
       - name: Converter
         run: python3 tools/cobblemon_to_hmod.py --jar cobblemon.jar --out dist
 
-      # Mesmo passo do workflow do mod de teste que funcionou (build-teste.yml).
-      # Se o seu usa outro jeito de instalar, copie o passo de la.
+      # Instalacao copiada do build-teste.yml (que funciona)
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: cargo-bins/cargo-binstall@main
       - name: Instalar cargo-horizon-mod
-        continue-on-error: true
         run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-          cargo binstall -y --git https://github.com/horizon-rust/horizon cargo-horizon-mod
+          cargo binstall --git https://github.com/horizon-rust/horizon cargo-horizon-mod -y \
+          || cargo install --git https://github.com/horizon-rust/horizon cargo-horizon-mod
+
+      # Cria um projeto de exemplo so para rodar o check de dentro dele,
+      # igual ao build-teste.yml
+      - name: Criar projeto auxiliar
+        run: cargo horizon-mod new aux_check --name "Aux Check"
 
       - name: Check de cada pacote (nao para no primeiro erro)
+        working-directory: aux_check
         continue-on-error: true
         run: |
           for p in assets vanilla full; do
-            echo "=============== check cobblemon_$p.hmod ===============" | tee -a dist/check.log
-            cargo horizon-mod check dist/cobblemon_$p.hmod 2>&1 | tail -n 60 | tee -a dist/check.log || true
+            echo "=============== check cobblemon_$p.hmod ===============" | tee -a "$GITHUB_WORKSPACE/dist/check.log"
+            cargo horizon-mod check "$GITHUB_WORKSPACE/dist/cobblemon_$p.hmod" 2>&1 | tail -n 80 | tee -a "$GITHUB_WORKSPACE/dist/check.log" || true
           done
 
       - name: Guardar artefato
