@@ -1,0 +1,44 @@
+name: Build mod de teste
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Instalar cargo-horizon-mod
+        run: |
+          cargo binstall --git https://github.com/horizon-rust/horizon cargo-horizon-mod -y \
+          || cargo install --git https://github.com/horizon-rust/horizon cargo-horizon-mod
+      - name: Criar mod de exemplo
+        run: cargo horizon-mod new cobble_test --name "Cobble Test"
+      - name: Build
+        working-directory: cobble_test
+        run: cargo horizon-mod build
+      - name: Check
+        working-directory: cobble_test
+        run: cargo horizon-mod check target/horizon-mod/*.hmod
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          F=$(basename cobble_test/target/horizon-mod/*.hmod)
+          TAG="teste-${{ github.run_number }}"
+          gh release create "$TAG" "cobble_test/target/horizon-mod/$F" \
+            --title "Mod de teste $TAG" --notes "Gerado automaticamente."
+          mkdir -p dist
+          cp "cobble_test/target/horizon-mod/$F" dist/
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add dist
+          git commit -m "Atualiza mod de teste" || true
+          git push
+          {
+            echo "### Links do mod"
+            echo "1. https://github.com/${{ github.repository }}/releases/download/$TAG/$F"
+            echo "2. https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/dist/$F"
+          } >> "$GITHUB_STEP_SUMMARY"
