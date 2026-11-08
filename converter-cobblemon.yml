@@ -1,0 +1,49 @@
+name: Converter Cobblemon (Fase 1)
+
+# Rodar manualmente: aba Actions > "Converter Cobblemon (Fase 1)" > Run workflow
+# e colar o link DIRETO do jar Cobblemon-fabric 1.8.4 (Minecraft 1.21.1).
+# O resultado fica como ARTEFATO (privado ao repositorio). NAO publica Release.
+on:
+  workflow_dispatch:
+    inputs:
+      jar_url:
+        description: "Link direto (https) do Cobblemon-fabric-1.8.4+1.21.1.jar"
+        required: true
+
+jobs:
+  converter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Baixar o jar
+        run: |
+          curl -L --fail --retry 3 -o cobblemon.jar "${{ inputs.jar_url }}"
+          ls -la cobblemon.jar
+          python3 -c "import zipfile; z=zipfile.ZipFile('cobblemon.jar'); print(len(z.namelist()),'arquivos no jar')"
+
+      - name: Converter
+        run: python3 tools/cobblemon_to_hmod.py --jar cobblemon.jar --out dist
+
+      # Mesmo passo do workflow do mod de teste que funcionou (build-teste.yml).
+      # Se o seu usa outro jeito de instalar, copie o passo de la.
+      - name: Instalar cargo-horizon-mod
+        continue-on-error: true
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall -y --git https://github.com/horizon-rust/horizon cargo-horizon-mod
+
+      - name: Check de cada pacote (nao para no primeiro erro)
+        continue-on-error: true
+        run: |
+          for p in assets vanilla full; do
+            echo "=============== check cobblemon_$p.hmod ===============" | tee -a dist/check.log
+            cargo horizon-mod check dist/cobblemon_$p.hmod 2>&1 | tail -n 60 | tee -a dist/check.log || true
+          done
+
+      - name: Guardar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobblemon-hmod
+          path: dist/
+          retention-days: 14
