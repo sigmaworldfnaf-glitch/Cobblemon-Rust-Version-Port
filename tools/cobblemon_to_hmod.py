@@ -4,7 +4,8 @@
 Uso:
   python tools/cobblemon_to_hmod.py --jar Cobblemon.jar --out dist
 Gera em --out:
-  cobblemon_assets.hmod    so assets (modelos, texturas, sons, lang)
+  cobblemon_assets.hmod    assets sem sons (modelos, texturas, lang)
+  cobblemon_sounds.hmod    so os sons (mod separado, id cobblemon_sounds)
   cobblemon_vanilla.hmod   assets + dados em formato vanilla (receitas, loot, tags...)
   cobblemon_full.hmod      assets + TODOS os dados do cobblemon (inclui species etc.)
   cobblemon_native_data.zip  dados proprios do Cobblemon + showdown.zip + licencas
@@ -16,6 +17,7 @@ import argparse, hashlib, json, os, sys, zipfile, collections
 
 ID = "cobblemon"
 LIMIT_FILES, LIMIT_FILE, LIMIT_TOTAL = 65536, 16 * 1024 * 1024, 512 * 1024 * 1024
+LIMIT_ARCHIVE = 64 * 1024 * 1024   # o check do Horizon recusa .hmod acima de 64 MiB (v8)
 OK_EXT = {".json", ".png", ".ogg", ".nbt", ".mcmeta", ".txt"}
 # dados do cobblemon que seguem formato vanilla do Minecraft
 VANILLA_DIRS = {"recipe", "loot_table", "advancement", "tags", "structure",
@@ -24,14 +26,17 @@ SKIP_ASSET_DIRS = {"shaders"}            # GLSL do Minecraft nao serve no Horizo
 SKIP_NAMES = {"license", "separate_assets.py", "species.schema.json"}
 EXTRA_NS = ("assets/minecraft/atlases/", "data/minecraft/tags/", "data/c/tags/")
 
-TOML = f'''id = "{ID}"
-name = "Cobblemon (port)"
+def toml(mod_id, name, namespaces):
+    ns = ", ".join('"%s"' % n for n in namespaces)
+    return f'''id = "{mod_id}"
+name = "{name}"
 version = "0.1.0"
-description = "Port nao oficial: assets e dados do Cobblemon 1.8.4 para o Horizon"
+description = "Port nao oficial: Cobblemon 1.8.4 para o Horizon"
 authors = ["Cobblemon Team (original)"]
 api = "0.2"
 side = "both"
 capabilities = ["registries"]
+namespaces = [{ns}]
 '''
 
 def classify(name):
@@ -48,6 +53,8 @@ def classify(name):
             return None, "shaders"
         if ext not in OK_EXT:
             return None, "ext:" + ext
+        if p[2] == "sounds" or base == "sounds.json":
+            return "sounds", "sounds"       # 44 MB de .ogg: vai em um mod separado
         return "assets", "assets"
     if name.startswith("assets/minecraft/atlases/") and ext == ".json":
         return "assets", "atlas_minecraft"
@@ -64,10 +71,10 @@ def classify(name):
         return "vanilla", "tags_" + p[1]
     return None, "namespace_ignorado:" + (p[1] if len(p) > 1 else p[0])
 
-def build(z, entries, path, include):
+def build(z, entries, path, include, manifest):
     n = tot = 0
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as o:
-        o.writestr("horizon-mod.toml", TOML)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as o:
+        o.writestr("horizon-mod.toml", manifest)
         for name, dest in entries:
             if dest in include:
                 data = z.read(name)
@@ -97,19 +104,22 @@ def main():
         if n.endswith("/license") or n == "LICENSE":
             h = hashlib.sha1(z.read(n)).hexdigest()
             lic.setdefault(h, []).append(n)
+    core = toml(ID, "Cobblemon (port)", [])
+    snd = toml(ID + "_sounds", "Cobblemon Sounds (port)", [ID])
     profiles = {
-        "assets":  {"assets"},
-        "vanilla": {"assets", "vanilla"},
-        "full":    {"assets", "vanilla", "custom"},
+        "assets":  ({"assets"}, core),
+        "vanilla": ({"assets", "vanilla"}, core),
+        "full":    ({"assets", "vanilla", "custom"}, core),
+        "sounds":  ({"sounds"}, snd),
     }
     rep = ["RELATORIO DA CONVERSAO COBBLEMON -> HMOD", ""]
-    for prof, inc in profiles.items():
+    for prof, (inc, manifest) in profiles.items():
         path = os.path.join(a.out, f"cobblemon_{prof}.hmod")
-        n, tot = build(z, entries, path, inc)
+        n, tot = build(z, entries, path, inc, manifest)
         size = os.path.getsize(path)
-        ok = n <= LIMIT_FILES and tot <= LIMIT_TOTAL
+        ok = n <= LIMIT_FILES and tot <= LIMIT_TOTAL and size <= LIMIT_ARCHIVE
         rep.append(f"[{prof}] {n} arquivos, {tot/1e6:.1f} MB descompactado, "
-                   f"{size/1e6:.1f} MB zip -> limites do Horizon: {'OK' if ok else 'ESTOUROU'}")
+                   f"{size/1048576:.1f} MiB zip (limite 64) -> {'OK' if ok else 'ESTOUROU'}")
     # pacote para o mod nativo
     nat = os.path.join(a.out, "cobblemon_native_data.zip")
     with zipfile.ZipFile(nat, "w", zipfile.ZIP_DEFLATED) as o:
@@ -133,3 +143,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+  
