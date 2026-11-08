@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       jar_url:
-        description: "Link direto (https) do Cobblemon-fabric-1.8.4+1.21.1.jar"
+        description: "Link do jar OU a pagina da versao 1.8.4 no Modrinth (https)"
         required: true
 
 jobs:
@@ -17,10 +17,33 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Baixar o jar
+        env:
+          JAR_URL: ${{ inputs.jar_url }}
         run: |
-          curl -L --fail --retry 3 -o cobblemon.jar "${{ inputs.jar_url }}"
-          ls -la cobblemon.jar
-          python3 -c "import zipfile; z=zipfile.ZipFile('cobblemon.jar'); print(len(z.namelist()),'arquivos no jar')"
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request, zipfile
+          url = os.environ["JAR_URL"].strip()
+          UA = {"User-Agent": "cobblemon-port-workflow (github actions)"}
+          def get(u):
+              return urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=120)
+          if "modrinth.com/" in url and "cdn.modrinth.com" not in url:
+              # pagina do Modrinth -> acha o jar Fabric 1.8.4 / 1.21.1 pela API
+              q = urllib.parse.urlencode({"loaders": json.dumps(["fabric"]),
+                                          "game_versions": json.dumps(["1.21.1"])})
+              versions = json.load(get(f"https://api.modrinth.com/v2/project/cobblemon/version?{q}"))
+              cand = [v for v in versions if v["version_number"].startswith("1.8.4")]
+              if not cand:
+                  raise SystemExit("Nao achei 1.8.4 Fabric 1.21.1. Versoes: " +
+                                   ", ".join(v["version_number"] for v in versions[:10]))
+              files = cand[0]["files"]
+              f = next((x for x in files if x.get("primary")), files[0])
+              url = f["url"]
+              print("Jar encontrado:", cand[0]["version_number"], url)
+          with get(url) as r, open("cobblemon.jar", "wb") as o:
+              o.write(r.read())
+          z = zipfile.ZipFile("cobblemon.jar")   # falha aqui se baixou HTML
+          print(os.path.getsize("cobblemon.jar") // 1000000, "MB;", len(z.namelist()), "arquivos no jar")
+          PY
 
       - name: Converter
         run: python3 tools/cobblemon_to_hmod.py --jar cobblemon.jar --out dist
