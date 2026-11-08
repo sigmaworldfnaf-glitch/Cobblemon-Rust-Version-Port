@@ -65,7 +65,7 @@ jobs:
         working-directory: aux_check
         continue-on-error: true
         run: |
-          for p in assets vanilla full; do
+          for p in assets vanilla full sounds; do
             echo "=============== check cobblemon_$p.hmod ===============" | tee -a "$GITHUB_WORKSPACE/dist/check.log"
             cargo horizon-mod check "$GITHUB_WORKSPACE/dist/cobblemon_$p.hmod" 2>&1 | tail -n 80 | tee -a "$GITHUB_WORKSPACE/dist/check.log" || true
           done
